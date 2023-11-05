@@ -1,6 +1,17 @@
 # pve-desktop-manager
 A small desktop GUI app to manage a Proxmox VE server. Written in perl.
 
+# Dependencies
+- Config
+- Config::IniFiles
+- Data::Dumper
+- DateTime
+- File::Temp
+- JSON
+- [PVE::APIClient::LWP](https://git.proxmox.com/?p=pve-apiclient.git;a=summary)
+- Tk
+- Tk::Table
+
 # Features
 - Queries and generates list for selecting a different authentication realm during login.
 - Lists all VMs the user has access to, their current run status, and what node they are running on (if applicable).
@@ -18,7 +29,7 @@ To use it just run the perl script. You'll be presented with a login window.
 - Linux is the only supported OS for autolaunching remote-viewer. (The location of the generated console.vv file will be displayed to the user in this case. Along with a message to open it manually.)
   - Because I'm lazy. Patches welcome!
 
-- Holy stars Batman! That's some badly written Perl code!
+- Holy stars Batman! That's some _badly_ written Perl code!
   - It's my first attempt at writing code in Perl. See also the "damage" comments in the code itself. (Which should be removed...)
 
 # Acknowledgements
