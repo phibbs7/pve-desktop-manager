@@ -692,7 +692,7 @@ sub our_main {
     my $ret_data;
     $our_globals{"conn"} = undef;
     $our_globals{"login_widget"} = MainWindow->new(-title => "Login");
-    $our_globals{"vm_list_widget"} = MainWindow->new(-title => "VM List")->withdraw;
+    $our_globals{"login_window_selected_domain"} = "";
 
     create_login_window($our_globals{"login_widget"}, \%our_globals);
 
@@ -703,6 +703,106 @@ sub error_msg_window {
     # Deal with Perl's brain damage here....
     my ($current_window, $window_title, $message) = @_;
     my $errmsg = $current_window->messageBox(-icon => "error", -type => "Ok", -title => $window_title, -message => $message);
+}
+
+sub login_window_domains_list_box_on_select_funct {
+    my ($event, $our_globals) = @_;
+    my @cur_sel = ();
+
+    if (defined $our_globals && defined $our_globals->{"login_window_domains_listbox"}) {
+        # Check if we got an auth domain list, and if it has a valid selection.
+        @cur_sel = $our_globals->{"login_window_domains_listbox"}->curselection;
+        if (scalar @login_window_current_domain_desc_list > 0 &&
+            scalar @cur_sel == 1) {
+            $our_globals->{"login_window_selected_domain"} = $login_window_current_domain_vals_list[$cur_sel[0]];
+        } else {
+            $our_globals->{"login_window_selected_domain"} = "";
+        }
+    } else {
+        $our_globals->{"login_window_selected_domain"} = "";
+    }
+    print("Selected Domain: [" .  $our_globals->{"login_window_selected_domain"} . "]\n");
+    return;
+}
+
+sub login_window_login_button_funct {
+    my ($event, $our_globals) = @_;
+    my $login_ret = 0;
+    my $data;
+    my $temp_username = "";
+    if (!defined $our_globals) {
+        print("Error ! Globals not defined.");
+        return;
+    }
+    # Check if we got an auth domain list, and if it has a valid selection.
+    if (scalar @login_window_current_domain_desc_list > 0 &&
+        $our_globals->{"login_window_selected_domain"} ne "") {
+        # Check for @ in the username.
+        if ("@" =~ /\Q$$our_globals{"user_name"}\E/i) {
+            ($login_ret, $data) = login_pve($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"}, $$our_globals{"user_name"}, $$our_globals{"user_pass"});
+        } else {
+            $temp_username = $$our_globals{"user_name"} . "@" . $$our_globals{"login_window_selected_domain"};
+
+            ($login_ret, $data) = login_pve($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"}, $temp_username, $$our_globals{"user_pass"});
+        }
+    } else {
+        ($login_ret, $data) = login_pve($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"}, $$our_globals{"user_name"}, $$our_globals{"user_pass"});
+    }
+
+    # Check for valid login_ret.
+    if ($login_ret && $data) {
+        # Save the user name for renewing the ticket.
+        if ($temp_username ne "") {
+            $$our_globals{"fq_user_name"} = $temp_username;
+        } else {
+            $$our_globals{"fq_user_name"} = $$our_globals{"user_name"};
+        }
+
+        # Blank out the password.
+        $$our_globals{"user_pass"} = "";
+
+        # Put the connection object into the globals list.
+        $$our_globals{"conn"} = $data;
+
+        # Set the issue time for the login ticket.
+        $$our_globals{"login_ticket_timestamp"} = DateTime->now;
+
+        # Create the VM list window.
+        ($login_ret, $data) = create_vm_list_window($our_globals);
+        if ($login_ret > 0 && $data) {
+            # Update the VM list window so it has valid data on show.
+            my ($ret_var, $ret_data) = update_vm_list_window($our_globals);
+            if ($ret_var > 0) {
+                # Display the VM list window, and hide the login window.
+                $$our_globals{"vm_list_widget"}->deiconify;
+                $$our_globals{"login_widget"}->withdraw;
+            } else {
+                error_msg_window($$our_globals{"login_widget"}, "VM list error", (defined $data && length($data) > 0) ? $data : "Unknown error.");
+            }
+        } else {
+            error_msg_window($$our_globals{"login_widget"}, "VM list error", (defined $data && length($data) > 0) ? $data : "Unknown error.");
+        }
+    } else {
+        error_msg_window($$our_globals{"login_widget"}, "Login error", (defined $data && length($data) > 0) ? $data : "Unknown error.");
+    }
+}
+
+sub login_window_get_auth_domains_button_funct {
+    my ($event, $our_globals) = @_;
+    my ($ref_domains, $ref_desc) = get_auth_realms($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"});
+    if (ref $ref_domains eq "ARRAY" && scalar @${ref_domains} > 0 &&
+        ref $ref_desc eq "ARRAY" && scalar @${ref_desc} > 0) {
+
+        @login_window_current_domain_vals_list = ();
+        push(@login_window_current_domain_vals_list, @$ref_domains);
+
+        @login_window_current_domain_desc_list = ();
+        push(@login_window_current_domain_desc_list, @$ref_desc);
+        copy_array_to_listbox($$our_globals{"login_window_domains_listbox"}, \@login_window_current_domain_desc_list);
+        $$our_globals{"login_window_domains_listbox"}->pack;
+    } else {
+        printf("%s\n", "Hog mangler. No domains.");
+    }
 }
 
 sub create_login_window {
@@ -720,6 +820,9 @@ sub create_login_window {
 
         $mw->Label(-text => 'Enter Host Name')->pack;
         my $hostname = $mw->Entry(-width => 20, -textvariable => \$$our_globals{"server_name"});
+        $hostname->bind('<KeyRelease-Return>', [ sub {
+            login_window_get_auth_domains_button_funct(@_);
+        }, $our_globals, ] );
         $hostname->pack;
 
         $mw->Label(-text => 'Enter Port Number')->pack;
@@ -745,8 +848,19 @@ sub create_login_window {
         $mw->Label(-text => 'Authentication Domain')->pack;
         my $domains_listbox = $mw->Listbox(-selectmode => "single");
         copy_array_to_listbox($domains_listbox, \@login_window_current_domain_desc_list);
+        $domains_listbox->bind('<KeyRelease-Return>' => sub {
+            my ($box) = @_;
+            $box->selectionClear(0, 'end');
+            $box->selectionSet($box->index('active'));
+            $box->selectionAnchor($box->index('active'));
+            $box->see($box->index('active'));
+            $box->eventGenerate('<<ListboxSelect>>');
+        });
+        $domains_listbox->bind('<<ListboxSelect>>' => [ sub {
+            login_window_domains_list_box_on_select_funct(@_);
+        }, $our_globals, ] );
         $domains_listbox->pack;
-        $$our_globals{"login_window_domains_listbox"} = $domains_listbox;
+        $our_globals->{"login_window_domains_listbox"} = $domains_listbox;
 
         $mw->Label(-text => 'Enter User Name')->pack;
         my $username = $mw->Entry(-width => 20, -textvariable => \$$our_globals{"user_name"});
@@ -754,68 +868,16 @@ sub create_login_window {
 
         $mw->Label(-text => 'Enter Password')->pack;
         my $password = $mw->Entry(-width => 20, -show => '*', -textvariable => \$$our_globals{"user_pass"});
+        $password->bind('<KeyRelease-Return>', [ sub {
+            login_window_login_button_funct(@_);
+        }, $our_globals, ] );
         $password->pack;
 
         $mw->Button(
             -text => 'Login',
             # Yes, the extra sub is needed here. (Or it will execute connect_pve instantly when the button gets eval'd.)
             -command => [ sub {
-                my ($our_globals) = @_;
-                my $login_ret = 0;
-                my $data;
-                my $temp_username = "";
-                # Check if we got an auth domain list, and if it has a valid selection.
-                @cur_sel = $domains_listbox->curselection;
-                if (scalar @login_window_current_domain_desc_list > 0 &&
-                    scalar @cur_sel == 1) {
-                    # Check for @ in the username.
-                    if ("@" =~ /\Q$$our_globals{"user_name"}\E/i) {
-                        ($login_ret, $data) = login_pve($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"}, $$our_globals{"user_name"}, $$our_globals{"user_pass"});
-                    } else {
-                        $temp_username = $$our_globals{"user_name"} . "@" . $login_window_current_domain_vals_list[$cur_sel[0]];
-
-                        ($login_ret, $data) = login_pve($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"}, $temp_username, $$our_globals{"user_pass"});
-                    }
-                } else {
-                    ($login_ret, $data) = login_pve($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"}, $$our_globals{"user_name"}, $$our_globals{"user_pass"});
-                }
-
-                # Check for valid login_ret.
-                if ($login_ret && $data) {
-                    # Save the user name for renewing the ticket.
-                    if ($temp_username ne "") {
-                        $$our_globals{"fq_user_name"} = $temp_username;
-                    } else {
-                        $$our_globals{"fq_user_name"} = $$our_globals{"user_name"};
-                    }
-
-                    # Blank out the password.
-                    $$our_globals{"user_pass"} = "";
-
-                    # Put the connection object into the globals list.
-                    $$our_globals{"conn"} = $data;
-
-                    # Set the issue time for the login ticket.
-                    $$our_globals{"login_ticket_timestamp"} = DateTime->now;
-
-                    # Create the VM list window.
-                    ($login_ret, $data) = create_vm_list_window($our_globals);
-                    if ($login_ret > 0 && $data) {
-                        # Update the VM list window so it has valid data on show.
-                        my ($ret_var, $ret_data) = update_vm_list_window($our_globals);
-                        if ($ret_var > 0) {
-                            # Display the VM list window, and hide the login window.
-                            $$our_globals{"vm_list_widget"}->deiconify;
-                            $$our_globals{"login_widget"}->withdraw;
-                        } else {
-                            error_msg_window($$our_globals{"login_widget"}, "VM list error", (defined $data && length($data) > 0) ? $data : "Unknown error.");
-                        }
-                    } else {
-                        error_msg_window($$our_globals{"login_widget"}, "VM list error", (defined $data && length($data) > 0) ? $data : "Unknown error.");
-                    }
-                } else {
-                    error_msg_window($$our_globals{"login_widget"}, "Login error", (defined $data && length($data) > 0) ? $data : "Unknown error.");
-                }
+                login_window_login_button_funct(undef, @_);
             }, $our_globals, ]
         )->pack;
 
@@ -823,21 +885,7 @@ sub create_login_window {
             -text => 'Get Authentication Domains',
             # Yes, the extra sub is needed here. (Or it will execute get_auth_realms instantly when the button gets eval'd.)
             -command => [ sub {
-                my ($our_globals) = @_;
-                my ($ref_domains, $ref_desc) = get_auth_realms($$our_globals{"https_enable"}, $$our_globals{"server_name"}, $$our_globals{"server_port"});
-                if (ref $ref_domains eq "ARRAY" && scalar @${ref_domains} > 0 &&
-                    ref $ref_desc eq "ARRAY" && scalar @${ref_desc} > 0) {
-
-                    @login_window_current_domain_vals_list = ();
-                    push(@login_window_current_domain_vals_list, @$ref_domains);
-
-                    @login_window_current_domain_desc_list = ();
-                    push(@login_window_current_domain_desc_list, @$ref_desc);
-                    copy_array_to_listbox($$our_globals{"login_window_domains_listbox"}, \@login_window_current_domain_desc_list);
-                    $$our_globals{"login_window_domains_listbox"}->pack;
-                } else {
-                    printf("%s\n", "Hog mangler. No domains.");
-                }
+                login_window_get_auth_domains_button_funct(undef, @_);
             }, $our_globals, ]
         )->pack;
 
