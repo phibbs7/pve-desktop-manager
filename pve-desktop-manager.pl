@@ -315,11 +315,19 @@ sub renew_login_ticket {
                         { "username" => $$our_globals{"fq_user_name"}, "password" => $$pve_client{ticket} }
                     );
 
-                    # Update the issued timestamp.
-                    $$our_globals{"login_ticket_timestamp"} = DateTime->now;
+                    if (defined $ticket_response && defined $ticket_response->{"data"} &&
+                        defined $ticket_response->{"data"}->{ticket} && $ticket_response->{"data"}->{CSRFPreventionToken}) {
+                        # Update the issued timestamp.
+                        $our_globals->{"login_ticket_timestamp"} = DateTime->now;
 
-                    $ret_val = 1;
-                    $ret_data = "";
+                        # Update stored client ticket and CSRF token.
+                        my $response_data = $ticket_response->{"data"};
+                        $pve_client->update_ticket($response_data->{ticket});
+                        $pve_client->update_csrftoken($response_data->{CSRFPreventionToken});
+
+                        $ret_val = 1;
+                        $ret_data = "";
+                    }
                 };
                 if ($@) {
                     $ret_val = 0;
