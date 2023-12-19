@@ -937,6 +937,7 @@ sub create_vm_list_window {
             $$our_globals{"conn"} = undef;
             $$our_globals{"login_widget"}->deiconify;
             $$our_globals{"vm_list_widget"}->withdraw;
+            $$our_globals{"vm_list_timer"}->cancel;
         }, $our_globals ])->pack(-anchor => "ne");
 
         # Create the VM listbox.
@@ -959,6 +960,7 @@ sub create_vm_list_window {
                     print("Login ticket refresh error: ", (defined $ret_data && length($ret_data) > 0) ? $ret_data : "Unknown error.");
                     $$our_globals{"login_widget"}->deiconify;
                     $$our_globals{"vm_list_widget"}->withdraw;
+                    $$our_globals{"vm_list_timer"}->cancel;
                 }
             }
 
@@ -967,6 +969,9 @@ sub create_vm_list_window {
                 print("VM list refresh error: ", (defined $ret_data && length($ret_data) > 0) ? $ret_data : "Unknown error.");
             }
         }, $our_globals ]);
+
+        # Push the timer to the globals list.
+        $$our_globals{"vm_list_timer"} = $timer;
 
         # Push the new window to the globals list.
         $$our_globals{"vm_list_widget"} = $mw;
